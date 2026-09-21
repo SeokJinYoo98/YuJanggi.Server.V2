@@ -5,11 +5,12 @@ namespace YuJanggi.Server.V2.Handlers
 {
     using Core;
 
-    using Transport;
-
+    using Protocol.V2.Connection;
     using Protocol.V2.Messages;
     using Protocol.V2.Messages.MessageFactory;
-    using Protocol.V2.Connection;
+
+    using Transport;
+    using View;
 
     /// <summary>
     /// 클라이언트의 핸드셰이크 요청을 처리합니다.
@@ -38,6 +39,11 @@ namespace YuJanggi.Server.V2.Handlers
 
             ProtocolHandshakeResult result =
                 ValidateVersion(request);
+
+            NetworkView.ShowHandShakeResult(
+                connection.ConnectionInfo,
+                request,
+                result);
 
             var response = new ProtocolHandshakeResponse
             {

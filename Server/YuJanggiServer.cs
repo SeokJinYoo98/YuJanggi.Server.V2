@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 namespace YuJanggi.Server.V2.Server
 {
     using System.Collections.Concurrent;
+    using Handlers;
     using Transport;
     using YuJanggi.Protocol.V2.Messages;
 
@@ -19,6 +20,7 @@ namespace YuJanggi.Server.V2.Server
         private static readonly IPAddress Address = IPAddress.Any;
 
         private readonly TcpConnectionListener _listener;
+        private readonly ProtocolHandshakeHandler _handshakeHandler = new();
         private readonly ConcurrentDictionary<Guid, TcpClientConnection> _connections = new();
         private readonly ConcurrentDictionary<Guid, Task> _clientTasks = new();
         public YuJanggiServer()
@@ -68,7 +70,13 @@ namespace YuJanggi.Server.V2.Server
                     ClientMessage message =
                         await connection.ReceiveAsync(cancellationToken);
 
-                    // 나중에 메시지 처리
+                    if (message.Type == ClientMessageType.ProtocolHandshake)
+                    {
+                        await _handshakeHandler.HandleAsync(
+                            connection,
+                            message,
+                            cancellationToken);
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -87,5 +95,6 @@ namespace YuJanggi.Server.V2.Server
                     $"Client disconnected: {connection.ConnectionInfo}");
             }
         }
+
     }
 }

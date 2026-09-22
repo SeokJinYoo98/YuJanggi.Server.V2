@@ -9,6 +9,7 @@ namespace YuJanggi.Server.V2.Server
     using System.Collections.Concurrent;
     using Handlers;
     using Transport;
+    using View;
     using YuJanggi.Protocol.V2.Messages;
 
     /// <summary>
@@ -35,22 +36,21 @@ namespace YuJanggi.Server.V2.Server
         {
             _listener.Start();
 
-            Console.WriteLine("YuJanggi Server started.");
+            NetworkView.Write(NetworkMessageType.Message, "YuJanggi Server started.");
 
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var guid = Guid.NewGuid();
                     TcpClientConnection connection =
                         await _listener.AcceptAsync(cancellationToken);
+                    var guid = connection.ClientId;
 
                     _connections.TryAdd(guid, connection);
+                    NetworkView.Write(NetworkMessageType.Message,
+                        $"Client connected: {connection.ConnectionInfo}", guid);
                     var task = HandleClientAsync(connection, cancellationToken);
                     _clientTasks.TryAdd(guid, task);
-
-                    Console.WriteLine(
-                        $"{guid}_Client connected: {connection.ConnectionInfo}");
                 }
             }
             finally
@@ -79,20 +79,24 @@ namespace YuJanggi.Server.V2.Server
                     }
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // 서버 종료 등으로 취소됨
             }
-            catch (IOException)
+            catch (EndOfStreamException)
             {
                 // 클라이언트 연결 종료
+            }
+            catch (Exception exception)
+            {
+                NetworkView.Write(NetworkMessageType.Error, exception.ToString(), connection.ClientId);
             }
             finally
             {
                 connection.Dispose();
 
-                Console.WriteLine(
-                    $"Client disconnected: {connection.ConnectionInfo}");
+                NetworkView.Write(NetworkMessageType.Message,
+                    $"Client disconnected: {connection.ConnectionInfo}", connection.ClientId);
             }
         }
 

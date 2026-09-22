@@ -41,7 +41,7 @@ namespace YuJanggi.Server.V2.Handlers
                 ValidateVersion(request);
 
             NetworkView.ShowHandShakeResult(
-                connection.ConnectionInfo,
+                connection.ClientId,
                 request,
                 result);
 

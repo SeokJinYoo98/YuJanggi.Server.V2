@@ -7,7 +7,15 @@
 
         public static async Task Main()
         {
-            await _server.RunAsync();
+            try
+            {
+                await _server.RunAsync();
+            }
+            catch (Exception exception)
+            {
+                View.NetworkView.Write(View.NetworkMessageType.Error, exception.ToString());
+                Environment.ExitCode = 1;
+            }
         }
     }
 }

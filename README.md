@@ -130,7 +130,7 @@ Program.cs                         # 서버 진입점
 Server/YuJanggiServer.cs            # 연결 수락과 클라이언트 수신 루프
 Transport/TcpConnectionListener.cs  # TCP 리스너
 Transport/TcpClientConnection.cs    # 프레임 송수신과 연결 해제
-View/NetworkView.cs                # 현재 비어 있는 클래스
+View/NetworkView.cs                # 서버·클라이언트 로그 출력 통합
 NuGet.Config                       # 로컬 패키지 소스 및 매핑
 YuJanggi.Server.V2.csproj           # .NET 실행 프로젝트
 ```
@@ -154,3 +154,24 @@ YuJanggi.Server.V2.csproj           # .NET 실행 프로젝트
 | 연결되지만 응답이 없음 | 현재 요청 처리와 응답이 미구현인 상태에서는 예상된 동작 |
 | 수신이 계속 대기함 | 선언한 길이만큼 본문을 보냈는지 확인; 줄바꿈은 메시지 구분자가 아님 |
 | 헤더·본문 처리 실패 | big-endian 길이 헤더 및 1~4096바이트 본문 제한 확인 |
+
+## 로그 출력
+
+Server.V2의 로그는 `NetworkView.Write`를 통해 출력합니다. 종류는 `Error`,
+`Message`, `Debug`이며, 클라이언트 로그에는 연결별 `ClientId` GUID를 전달합니다.
+서버 로그는 ClientId를 생략합니다. 여러 줄 메시지의 각 줄에도 종류가 표시되며,
+동시 출력 시 로그 블록이 섞이지 않도록 잠금을 사용합니다.
+
+```text
+[Server]
+[Message]: YuJanggi Server started.
+
+[클라이언트 GUID]:
+[Message]: Client connected: 127.0.0.1:12345
+
+[클라이언트 GUID]:
+[Debug]: Handshake Result: Success
+```
+
+핸드셰이크 성공은 `Debug`, 버전 불일치 및 처리 예외는 `Error`,
+연결·해제와 서버 시작은 `Message`로 출력합니다.

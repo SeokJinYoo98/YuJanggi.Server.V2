@@ -9,6 +9,7 @@ namespace YuJanggi.Server.V2.Server
     using System.Collections.Concurrent;
     using Handlers;
     using Transport;
+    using View;
     using YuJanggi.Protocol.V2.Messages;
 
     /// <summary>
@@ -20,12 +21,26 @@ namespace YuJanggi.Server.V2.Server
         private static readonly IPAddress Address = IPAddress.Any;
 
         private readonly TcpConnectionListener _listener;
-        private readonly ProtocolHandshakeHandler _handshakeHandler = new();
+
         private readonly ConcurrentDictionary<Guid, TcpClientConnection> _connections = new();
         private readonly ConcurrentDictionary<Guid, Task> _clientTasks = new();
+
+        private readonly Dictionary<ClientMessageType, IMessageHandler> _handlers;
         public YuJanggiServer()
         {
             _listener    = new TcpConnectionListener(new IPEndPoint(Address, Port));
+
+            _handlers = new Dictionary<ClientMessageType, IMessageHandler>
+            {
+                {
+                    ClientMessageType.MatchingRequest,
+                    new MatchingHandler()
+                },
+                {
+                    ClientMessageType.ProtocolHandshake,
+                    new ProtocolHandshakeHandler()
+                }
+            };
         }
         /// <summary>
         /// 서버를 시작하고 클라이언트 연결을 계속 수락합니다.
@@ -35,22 +50,21 @@ namespace YuJanggi.Server.V2.Server
         {
             _listener.Start();
 
-            Console.WriteLine("YuJanggi Server started.");
+            NetworkView.Write(NetworkMessageType.Message, "YuJanggi Server started.");
 
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var guid = Guid.NewGuid();
                     TcpClientConnection connection =
                         await _listener.AcceptAsync(cancellationToken);
+                    var guid = connection.ClientId;
 
                     _connections.TryAdd(guid, connection);
+                    NetworkView.Write(NetworkMessageType.Message,
+                        $"Client connected: {connection.ConnectionInfo}", guid);
                     var task = HandleClientAsync(connection, cancellationToken);
                     _clientTasks.TryAdd(guid, task);
-
-                    Console.WriteLine(
-                        $"{guid}_Client connected: {connection.ConnectionInfo}");
                 }
             }
             finally
@@ -70,29 +84,38 @@ namespace YuJanggi.Server.V2.Server
                     ClientMessage message =
                         await connection.ReceiveAsync(cancellationToken);
 
-                    if (message.Type == ClientMessageType.ProtocolHandshake)
+                    if (!_handlers.TryGetValue(
+                        message.Type,
+                        out var handler))
                     {
-                        await _handshakeHandler.HandleAsync(
-                            connection,
-                            message,
-                            cancellationToken);
+                        throw new InvalidOperationException(
+                            $"처리할 수 없는 메시지입니다: {message.Type}");
                     }
+
+                    await handler.HandleAsync(
+                        connection,
+                        message,
+                        cancellationToken);
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // 서버 종료 등으로 취소됨
             }
-            catch (IOException)
+            catch (EndOfStreamException)
             {
                 // 클라이언트 연결 종료
+            }
+            catch (Exception exception)
+            {
+                NetworkView.Write(NetworkMessageType.Error, exception.ToString(), connection.ClientId);
             }
             finally
             {
                 connection.Dispose();
 
-                Console.WriteLine(
-                    $"Client disconnected: {connection.ConnectionInfo}");
+                NetworkView.Write(NetworkMessageType.Message,
+                    $"Client disconnected: {connection.ConnectionInfo}", connection.ClientId);
             }
         }
 

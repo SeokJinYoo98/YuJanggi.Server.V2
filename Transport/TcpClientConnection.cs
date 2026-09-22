@@ -19,6 +19,7 @@ namespace YuJanggi.Server.V2.Transport
 
         private bool _disposed;
 
+        public Guid ClientId { get; } = Guid.NewGuid();
         public string ConnectionInfo { get; }
         public TcpClientConnection(TcpClient client)
         {

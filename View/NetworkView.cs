@@ -1,30 +1,44 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System;
 
 namespace YuJanggi.Server.V2.View
 {
     using YuJanggi.Core;
     using YuJanggi.Protocol.V2.Connection;
 
+    internal enum NetworkMessageType
+    {
+        Error,
+        Message,
+        Debug
+    }
+
     internal static class NetworkView
     {
+        private static readonly object OutputLock = new();
+
+        public static void Write(NetworkMessageType messageType, string message, Guid? clientId = null)
+        {
+            string source = clientId.HasValue ? $"[{clientId.Value}]:" : "[Server]";
+            string lines = message.ReplaceLineEndings(Environment.NewLine + $"[{messageType}]: ");
+            lock (OutputLock)
+            {
+                Console.WriteLine($"{source}{Environment.NewLine}[{messageType}]: {lines}{Environment.NewLine}");
+            }
+        }
+
         public static void ShowHandShakeResult(
-            string clientInfo,
+            Guid clientId,
             ProtocolHandshakeRequest request,
             ProtocolHandshakeResult result)
         {
-            Console.WriteLine($"Client: {clientInfo}");
-            Console.WriteLine(
-                $"Protocol: Client={request.YuJanggiProtocolVersion}, " +
-                $"Server={Protocol.V2.ProtocolVersion.Current}");
-
-            Console.WriteLine(
-                $"Core: Client={request.YuJanggiCoreVersion}, " +
-                $"Server={CoreVersion.Current}");
-
-            Console.WriteLine(
-                $"Handshake Result: {result}");
+            Write(
+                result == ProtocolHandshakeResult.Success ? NetworkMessageType.Debug : NetworkMessageType.Error,
+                $"Protocol: Client={request.YuJanggiProtocolVersion}, Server={Protocol.V2.ProtocolVersion.Current}" +
+                Environment.NewLine +
+                $"Core: Client={request.YuJanggiCoreVersion}, Server={CoreVersion.Current}" +
+                Environment.NewLine +
+                $"Handshake Result: {result}",
+                clientId);
         }
     }
 }

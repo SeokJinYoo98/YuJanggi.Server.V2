@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="YuJanggi.Protocol.V2" Version="0.1.0" />
+    <PackageReference Include="YuJanggi.Protocol.V2" Version="0.2.0" />
 	  <PackageReference Include="YuJanggi.Core.V2" Version="1.0.0" />
   </ItemGroup>
 

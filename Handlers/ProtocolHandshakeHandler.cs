@@ -15,7 +15,7 @@ namespace YuJanggi.Server.V2.Handlers
     /// <summary>
     /// 클라이언트의 핸드셰이크 요청을 처리합니다.
     /// </summary>
-    internal sealed class ProtocolHandshakeHandler
+    internal sealed class ProtocolHandshakeHandler : IMessageHandler
     {
         public async Task HandleAsync(
             TcpClientConnection connection,

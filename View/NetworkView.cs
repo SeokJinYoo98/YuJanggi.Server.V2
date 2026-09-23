@@ -4,6 +4,7 @@ namespace YuJanggi.Server.V2.View
 {
     using YuJanggi.Core;
     using YuJanggi.Protocol.V2.Connection;
+    using YuJanggi.Protocol.V2.Matching;
 
     internal enum NetworkMessageType
     {
@@ -39,6 +40,17 @@ namespace YuJanggi.Server.V2.View
                     $"[{messageType}]: {lines}" +
                     Environment.NewLine);
             }
+        }
+
+        public static void ShowMatchingFound(MatchingFound matchingFound)
+        {
+            Write(
+                NetworkMessageType.Message,
+                $"매칭 알림 전송 완료: {matchingFound.MatchId}" +
+                Environment.NewLine +
+                $"초: {matchingFound.ChoPlayer.PlayerName} ({matchingFound.ChoPlayer.PlayerId})" +
+                Environment.NewLine +
+                $"한: {matchingFound.HanPlayer.PlayerName} ({matchingFound.HanPlayer.PlayerId})");
         }
 
         public static void ShowHandShakeResult(

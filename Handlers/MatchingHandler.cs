@@ -155,6 +155,8 @@ namespace YuJanggi.Server.V2.Handlers
             // GameRoom / MatchSession에서 매칭 확정 상태, 실패 대상 구분 및 복구 정책을 추가해야 합니다.
             await matchPair.First.Connection.SendAsync(foundMessage, cancellationToken);
             await matchPair.Second.Connection.SendAsync(foundMessage, cancellationToken);
+
+            NetworkView.ShowMatchingFound(matchingFound);
         }
 
         private static MatchingPlayer CreateMatchingPlayer(IClientSession session)

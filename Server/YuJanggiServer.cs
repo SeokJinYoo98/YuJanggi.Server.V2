@@ -8,6 +8,7 @@ namespace YuJanggi.Server.V2.Server
     using View;
     using YuJanggi.Protocol.V2.Messages;
     using YuJanggi.Server.V2.ClientSession;
+    using YuJanggi.Server.V2.Matching;
 
     /// <summary>
     /// 유장기 서버의 실행 및 클라이언트 연결 수락을 관리합니다.
@@ -40,17 +41,23 @@ namespace YuJanggi.Server.V2.Server
             _sessionManager =
                 new ClientSessionManager();
 
+            var handshakeHandler = new ProtocolHandshakeHandler();
+            var matchingHandler = new MatchingHandler();
             _handlers =
                 new Dictionary<ClientMessageType, IMessageHandler>
                 {
-                {
-                    ClientMessageType.ProtocolHandshake,
-                    new ProtocolHandshakeHandler()
-                },
-                {
-                    ClientMessageType.MatchingRequest,
-                    new MatchingHandler()
-                }
+                    {
+                        ClientMessageType.ProtocolHandshake,
+                        handshakeHandler
+                    },
+                    {
+                        ClientMessageType.MatchingRequest,
+                        matchingHandler
+                    },
+                    {
+                        ClientMessageType.MatchingCancelRequest,
+                        matchingHandler
+                    }
                 };
         }
 

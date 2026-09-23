@@ -12,8 +12,4 @@
 	  <PackageReference Include="YuJanggi.Core.V2" Version="1.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Connection\" />
-  </ItemGroup>
-
 </Project>

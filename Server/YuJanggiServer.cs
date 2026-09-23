@@ -1,80 +1,118 @@
 ﻿using System;
 using System.Net;
-using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace YuJanggi.Server.V2.Server
 {
-    using System.Collections.Concurrent;
     using Handlers;
     using Transport;
     using View;
     using YuJanggi.Protocol.V2.Messages;
+    using YuJanggi.Server.V2.ClientSession;
 
     /// <summary>
     /// 유장기 서버의 실행 및 클라이언트 연결 수락을 관리합니다.
     /// </summary>
-    internal class YuJanggiServer
+    internal sealed class YuJanggiServer
     {
+        #region Constants
+
         private const int Port = 7777;
         private static readonly IPAddress Address = IPAddress.Any;
 
-        private readonly TcpConnectionListener _listener;
+        #endregion
 
-        private readonly ConcurrentDictionary<Guid, TcpClientConnection> _connections = new();
-        private readonly ConcurrentDictionary<Guid, Task> _clientTasks = new();
+        #region Fields
+        private readonly TcpConnectionListener  _listener;
+        private readonly ClientSessionManager   _sessionManager;
 
         private readonly Dictionary<ClientMessageType, IMessageHandler> _handlers;
+
+        #endregion
+
+        #region Constructors
+
         public YuJanggiServer()
         {
-            _listener    = new TcpConnectionListener(new IPEndPoint(Address, Port));
+            _listener =
+                new TcpConnectionListener(
+                    new IPEndPoint(Address, Port));
 
-            _handlers = new Dictionary<ClientMessageType, IMessageHandler>
-            {
+            _sessionManager =
+                new ClientSessionManager();
+
+            _handlers =
+                new Dictionary<ClientMessageType, IMessageHandler>
                 {
-                    ClientMessageType.MatchingRequest,
-                    new MatchingHandler()
-                },
                 {
                     ClientMessageType.ProtocolHandshake,
                     new ProtocolHandshakeHandler()
+                },
+                {
+                    ClientMessageType.MatchingRequest,
+                    new MatchingHandler()
                 }
-            };
+                };
         }
-        /// <summary>
-        /// 서버를 시작하고 클라이언트 연결을 계속 수락합니다.
-        /// </summary>
+
+        #endregion
+
+        #region Public Methods
+
         public async Task RunAsync(
             CancellationToken cancellationToken = default)
         {
             _listener.Start();
 
-            NetworkView.Write(NetworkMessageType.Message, "YuJanggi Server started.");
+            NetworkView.Write(
+                NetworkMessageType.Message,
+                "YuJanggi Server started.");
 
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     TcpClientConnection connection =
-                        await _listener.AcceptAsync(cancellationToken);
-                    var guid = connection.ClientId;
+                        await _listener.AcceptAsync(
+                            cancellationToken);
 
-                    _connections.TryAdd(guid, connection);
-                    NetworkView.Write(NetworkMessageType.Message,
-                        $"Client connected: {connection.ConnectionInfo}", guid);
-                    var task = HandleClientAsync(connection, cancellationToken);
-                    _clientTasks.TryAdd(guid, task);
+                    var session =
+                        ClientSessionFactory.CreateClientSession(
+                            connection);
+
+                    if (!_sessionManager.Add(session))
+                    {
+                        session.Dispose();
+                        continue;
+                    }
+
+                    NetworkView.Write(
+                        NetworkMessageType.Message,
+                        $"Client connected: {connection.ConnectionInfo}",
+                        session.Nickname);
+
+                    Task processingTask =
+                        HandleClientAsync(
+                            session,
+                            cancellationToken);
+
+                    session.AttachProcessingTask(
+                        processingTask);
                 }
             }
             finally
             {
                 _listener.Stop();
+
+                _sessionManager.Clear();
             }
         }
 
+        #endregion
+
+        #region Private Methods
+
         private async Task HandleClientAsync(
-            TcpClientConnection connection,
+            IClientSession session,
             CancellationToken cancellationToken)
         {
             try
@@ -82,25 +120,27 @@ namespace YuJanggi.Server.V2.Server
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     ClientMessage message =
-                        await connection.ReceiveAsync(cancellationToken);
+                        await session.Connection.ReceiveAsync(
+                            cancellationToken);
 
                     if (!_handlers.TryGetValue(
                         message.Type,
-                        out var handler))
+                        out IMessageHandler? handler))
                     {
                         throw new InvalidOperationException(
                             $"처리할 수 없는 메시지입니다: {message.Type}");
                     }
 
                     await handler.HandleAsync(
-                        connection,
+                        session,
                         message,
                         cancellationToken);
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
             {
-                // 서버 종료 등으로 취소됨
+                // 서버 종료
             }
             catch (EndOfStreamException)
             {
@@ -108,32 +148,35 @@ namespace YuJanggi.Server.V2.Server
             }
             catch (Exception exception)
             {
-                NetworkView.Write(NetworkMessageType.Error, exception.ToString(), connection.ClientId);
+                NetworkView.Write(
+                    NetworkMessageType.Error,
+                    exception.ToString(),
+                    session.Nickname);
             }
             finally
             {
-                DisconnectClient(connection);
+                DisconnectClient(session);
             }
         }
+
         private void DisconnectClient(
-            TcpClientConnection connection)
+            IClientSession session)
         {
-            var clientId = connection.ClientId;
+            if (!_sessionManager.Remove(
+                session.ClientId,
+                out _))
+            {
+                return;
+            }
 
-            connection.Dispose();
-
-            _connections.TryRemove(
-                clientId,
-                out _);
-
-            _clientTasks.TryRemove(
-                clientId,
-                out _);
+            session.Dispose();
 
             NetworkView.Write(
                 NetworkMessageType.Message,
-                $"Client disconnected: {connection.ConnectionInfo}",
-                clientId);
+                $"Client disconnected: {session.ConnectionInfo}",
+                session.Nickname);
         }
+
+        #endregion
     }
 }

@@ -16,29 +16,48 @@ namespace YuJanggi.Server.V2.View
     {
         private static readonly object OutputLock = new();
 
-        public static void Write(NetworkMessageType messageType, string message, Guid? clientId = null)
+        public static void Write(
+               NetworkMessageType messageType,
+               string message,
+               string? nickname = null)
         {
-            string source = clientId.HasValue ? $"[{clientId.Value}]:" : "[Server]";
-            string lines = message.ReplaceLineEndings(Environment.NewLine + $"[{messageType}]: ");
+            string source =
+                string.IsNullOrWhiteSpace(nickname)
+                    ? "[Server]"
+                    : $"[{nickname}]";
+
+            string lines =
+                message.ReplaceLineEndings(
+                    Environment.NewLine +
+                    $"[{messageType}]: ");
+
             lock (OutputLock)
             {
-                Console.WriteLine($"{source}{Environment.NewLine}[{messageType}]: {lines}{Environment.NewLine}");
+                Console.WriteLine(
+                    $"{source}" +
+                    Environment.NewLine +
+                    $"[{messageType}]: {lines}" +
+                    Environment.NewLine);
             }
         }
 
         public static void ShowHandShakeResult(
-            Guid clientId,
+            string nickname,
             ProtocolHandshakeRequest request,
             ProtocolHandshakeResult result)
         {
             Write(
-                result == ProtocolHandshakeResult.Success ? NetworkMessageType.Debug : NetworkMessageType.Error,
-                $"Protocol: Client={request.YuJanggiProtocolVersion}, Server={Protocol.V2.ProtocolVersion.Current}" +
+                result == ProtocolHandshakeResult.Success
+                    ? NetworkMessageType.Debug
+                    : NetworkMessageType.Error,
+                $"Protocol: Client={request.YuJanggiProtocolVersion}, " +
+                $"Server={Protocol.V2.ProtocolVersion.Current}" +
                 Environment.NewLine +
-                $"Core: Client={request.YuJanggiCoreVersion}, Server={CoreVersion.Current}" +
+                $"Core: Client={request.YuJanggiCoreVersion}, " +
+                $"Server={CoreVersion.Current}" +
                 Environment.NewLine +
                 $"Handshake Result: {result}",
-                clientId);
+                nickname);
         }
     }
 }

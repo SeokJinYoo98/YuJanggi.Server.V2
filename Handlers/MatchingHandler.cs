@@ -4,10 +4,10 @@ using System.Threading.Tasks;
 
 namespace YuJanggi.Server.V2.Handlers
 {
+    using Protocol.V2.Matching;
     using Protocol.V2.Messages;
     using Protocol.V2.Messages.MessageFactory;
-    using Protocol.V2.Matching;
-
+    using ClientSession;
     using Transport;
     using View;
 
@@ -18,7 +18,7 @@ namespace YuJanggi.Server.V2.Handlers
     internal sealed class MatchingHandler : IMessageHandler
     {
         public async Task HandleAsync(
-            TcpClientConnection connection,
+            IClientSession session,
             ClientMessage message,
             CancellationToken cancellationToken)
         {
@@ -51,14 +51,15 @@ namespace YuJanggi.Server.V2.Handlers
                                 message.RequestId,
                                 response);
 
-                        await connection.SendAsync(
+                        
+                        await session.Connection.SendAsync(
                             responseMessage,
                             cancellationToken);
 
                         NetworkView.Write(
                             NetworkMessageType.Message,
-                           $"Client Matching Request: {connection.ConnectionInfo}", 
-                           connection.ClientId);
+                           $"Client Matching Request: {session.ConnectionInfo}",
+                           session.Nickname);
 
                         break;
                     }

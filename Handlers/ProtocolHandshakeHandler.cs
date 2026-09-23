@@ -11,6 +11,7 @@ namespace YuJanggi.Server.V2.Handlers
 
     using Transport;
     using View;
+    using YuJanggi.Server.V2.ClientSession;
 
     /// <summary>
     /// 클라이언트의 핸드셰이크 요청을 처리합니다.
@@ -18,7 +19,7 @@ namespace YuJanggi.Server.V2.Handlers
     internal sealed class ProtocolHandshakeHandler : IMessageHandler
     {
         public async Task HandleAsync(
-            TcpClientConnection connection,
+            IClientSession session,
             ClientMessage message,
             CancellationToken cancellationToken)
         {
@@ -41,7 +42,7 @@ namespace YuJanggi.Server.V2.Handlers
                 ValidateVersion(request);
 
             NetworkView.ShowHandShakeResult(
-                connection.ClientId,
+                session.Nickname,
                 request,
                 result);
 
@@ -56,7 +57,7 @@ namespace YuJanggi.Server.V2.Handlers
                     message.RequestId,
                     response);
 
-            await connection.SendAsync(
+            await session.Connection.SendAsync(
                 responseMessage,
                 cancellationToken);
         }

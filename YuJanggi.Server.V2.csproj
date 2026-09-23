@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <InternalsVisibleTo Include="YuJanggi.Server.V2.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="YuJanggi.Protocol.V2" Version="0.2.0" />
 	  <PackageReference Include="YuJanggi.Core.V2" Version="1.0.0" />
   </ItemGroup>

@@ -60,6 +60,9 @@ namespace YuJanggi.Server.V2.Handlers
             await session.Connection.SendAsync(
                 responseMessage,
                 cancellationToken);
+
+            if (result == ProtocolHandshakeResult.Success)
+                session.CompleteHandshake();
         }
 
         private static ProtocolHandshakeResult ValidateVersion(

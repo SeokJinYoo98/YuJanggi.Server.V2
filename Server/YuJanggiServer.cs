@@ -25,6 +25,7 @@ namespace YuJanggi.Server.V2.Server
         #region Fields
         private readonly TcpConnectionListener  _listener;
         private readonly ClientSessionManager   _sessionManager;
+        private readonly MatchMakingService _matchMakingService;
 
         private readonly Dictionary<ClientMessageType, IMessageHandler> _handlers;
 
@@ -42,7 +43,10 @@ namespace YuJanggi.Server.V2.Server
                 new ClientSessionManager();
 
             var handshakeHandler = new ProtocolHandshakeHandler();
-            var matchingHandler = new MatchingHandler();
+
+            _matchMakingService = new MatchMakingService();
+            var matchingHandler = new MatchingHandler(_matchMakingService);
+
             _handlers =
                 new Dictionary<ClientMessageType, IMessageHandler>
                 {
@@ -68,6 +72,8 @@ namespace YuJanggi.Server.V2.Server
         public async Task RunAsync(
             CancellationToken cancellationToken = default)
         {
+            using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cancellationToken = shutdown.Token;
             _listener.Start();
 
             NetworkView.Write(
@@ -108,9 +114,13 @@ namespace YuJanggi.Server.V2.Server
             }
             finally
             {
+                // 수락 루프가 오류로 끝나도 송수신 대기를 먼저 취소한 뒤 세션을 정리합니다.
+                shutdown.Cancel();
                 _listener.Stop();
 
+                Task[] processingTasks = _sessionManager.GetProcessingTasks();
                 _sessionManager.Clear();
+                await Task.WhenAll(processingTasks);
             }
         }
 
@@ -169,6 +179,9 @@ namespace YuJanggi.Server.V2.Server
         private void DisconnectClient(
             IClientSession session)
         {
+            // 서버 종료 시 세션 목록이 먼저 비워졌더라도 대기열은 반드시 정리합니다.
+            _matchMakingService.CancelMatch(session);
+
             if (!_sessionManager.Remove(
                 session.ClientId,
                 out _))

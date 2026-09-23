@@ -112,12 +112,28 @@ namespace YuJanggi.Server.V2.Server
             }
             finally
             {
-                connection.Dispose();
-
-                NetworkView.Write(NetworkMessageType.Message,
-                    $"Client disconnected: {connection.ConnectionInfo}", connection.ClientId);
+                DisconnectClient(connection);
             }
         }
+        private void DisconnectClient(
+            TcpClientConnection connection)
+        {
+            var clientId = connection.ClientId;
 
+            connection.Dispose();
+
+            _connections.TryRemove(
+                clientId,
+                out _);
+
+            _clientTasks.TryRemove(
+                clientId,
+                out _);
+
+            NetworkView.Write(
+                NetworkMessageType.Message,
+                $"Client disconnected: {connection.ConnectionInfo}",
+                clientId);
+        }
     }
 }

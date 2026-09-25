@@ -9,6 +9,7 @@ namespace YuJanggi.Server.V2.Server
     using YuJanggi.Protocol.V2.Messages;
     using YuJanggi.Server.V2.ClientSession;
     using YuJanggi.Server.V2.Matching;
+    using YuJanggi.Server.V2.GameRoom;
 
     /// <summary>
     /// 유장기 서버의 실행 및 클라이언트 연결 수락을 관리합니다.
@@ -26,6 +27,8 @@ namespace YuJanggi.Server.V2.Server
         private readonly TcpConnectionListener  _listener;
         private readonly ClientSessionManager   _sessionManager;
         private readonly MatchMakingService _matchMakingService;
+        private readonly Lock _roomSync = new();
+        private readonly Dictionary<string, JanggiRoom> _gameRooms = new();
 
         private readonly Dictionary<ClientMessageType, IMessageHandler> _handlers;
 
@@ -45,7 +48,7 @@ namespace YuJanggi.Server.V2.Server
             var handshakeHandler = new ProtocolHandshakeHandler();
 
             _matchMakingService = new MatchMakingService();
-            var matchingHandler = new MatchingHandler(_matchMakingService);
+            var matchingHandler = new MatchingHandler(_matchMakingService, CreateGameRoom);
 
             _handlers =
                 new Dictionary<ClientMessageType, IMessageHandler>
@@ -121,12 +124,36 @@ namespace YuJanggi.Server.V2.Server
                 Task[] processingTasks = _sessionManager.GetProcessingTasks();
                 _sessionManager.Clear();
                 await Task.WhenAll(processingTasks);
+                lock (_roomSync)
+                    _gameRooms.Clear();
             }
         }
 
         #endregion
 
         #region Private Methods
+
+        /// <summary>
+        /// 매칭된 초·한 참가자로 장기 룸을 초기화하고 매칭 ID별로 보관합니다.
+        /// 양쪽 Accepted 응답 전송 후, MatchingFound 이벤트 전송 전에 호출합니다.
+        /// 준비 완료 처리와 실제 게임 시작은 수행하지 않습니다.
+        /// </summary>
+        private JanggiRoom CreateGameRoom(string matchId, MatchPair matchPair)
+        {
+            var room = new JanggiRoom();
+            room.Initialize(matchId, matchPair);
+
+            lock (_roomSync)
+            {
+                // 참가자 종료와 룸 등록을 같은 잠금으로 보호합니다.
+                if (!_sessionManager.Contains(matchPair.First.ClientId) ||
+                    !_sessionManager.Contains(matchPair.Second.ClientId))
+                    throw new InvalidOperationException("연결이 종료된 참가자의 룸을 생성할 수 없습니다.");
+
+                _gameRooms.Add(room.MatchId, room);
+            }
+            return room;
+        }
 
         private async Task HandleClientAsync(
             IClientSession session,
@@ -182,9 +209,23 @@ namespace YuJanggi.Server.V2.Server
             // 서버 종료 시 세션 목록이 먼저 비워졌더라도 대기열은 반드시 정리합니다.
             _matchMakingService.CancelMatch(session);
 
-            if (!_sessionManager.Remove(
-                session.ClientId,
-                out _))
+            bool removed;
+            lock (_roomSync)
+            {
+                removed = _sessionManager.Remove(session.ClientId, out _);
+                foreach (var entry in _gameRooms.ToArray())
+                {
+                    if (entry.Value.ChoPlayer?.ClientId == session.ClientId ||
+                        entry.Value.HanPlayer?.ClientId == session.ClientId)
+                        _gameRooms.Remove(entry.Key);
+                }
+            }
+
+            // TODO:
+            // 현재는 참가자가 연결을 종료하면 해당 룸 참조만 제거하며 상대에게 별도 종료 알림을 보내지 않습니다.
+            // 상대가 MatchingFound를 받았다면 Matched 상태로 남을 수 있습니다.
+            // 룸 생명주기 구현 시 상대 알림, 재접속 여부 및 Close의 자원 정리 정책을 연결해야 합니다.
+            if (!removed)
             {
                 return;
             }

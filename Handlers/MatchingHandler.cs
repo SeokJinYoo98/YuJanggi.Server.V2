@@ -2,6 +2,7 @@ using YuJanggi.Protocol.V2.Matching;
 using YuJanggi.Protocol.V2.Messages;
 using YuJanggi.Protocol.V2.Messages.MessageFactory;
 using YuJanggi.Server.V2.ClientSession;
+using YuJanggi.Server.V2.GameRoom;
 using YuJanggi.Server.V2.Matching;
 using YuJanggi.Server.V2.View;
 
@@ -11,12 +12,16 @@ namespace YuJanggi.Server.V2.Handlers
     internal sealed class MatchingHandler : IMessageHandler
     {
         private readonly MatchMakingService _matchMakingService;
+        private readonly Func<string, MatchPair, JanggiRoom> _createGameRoom;
         private readonly Lock _responseSync = new();
         private readonly Dictionary<Guid, TaskCompletionSource<bool>> _pendingResponses = new();
 
-        public MatchingHandler(MatchMakingService matchMakingService)
+        public MatchingHandler(
+            MatchMakingService matchMakingService,
+            Func<string, MatchPair, JanggiRoom> createGameRoom)
         {
-            _matchMakingService = matchMakingService;
+            _matchMakingService     = matchMakingService;
+            _createGameRoom         = createGameRoom;
         }
 
         public Task HandleAsync(
@@ -92,7 +97,11 @@ namespace YuJanggi.Server.V2.Handlers
                 bool[] responsesSent = await Task.WhenAll(firstResponse!, secondResponse!)
                     .WaitAsync(cancellationToken);
                 if (responsesSent.All(sent => sent))
-                    await SendMatchingFoundAsync(matchPair, cancellationToken);
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var room = _createGameRoom(Guid.NewGuid().ToString(), matchPair);
+                    await SendMatchingFoundAsync(room.MatchId, matchPair, cancellationToken);
+                }
             }
         }
 
@@ -138,11 +147,11 @@ namespace YuJanggi.Server.V2.Handlers
         }
 
         private static async Task SendMatchingFoundAsync(
-            MatchPair matchPair, CancellationToken cancellationToken)
+            string matchId, MatchPair matchPair, CancellationToken cancellationToken)
         {
             var matchingFound = new MatchingFound
             {
-                MatchId = Guid.NewGuid().ToString(),
+                MatchId = matchId,
                 ChoPlayer = CreateMatchingPlayer(matchPair.First),
                 HanPlayer = CreateMatchingPlayer(matchPair.Second)
             };

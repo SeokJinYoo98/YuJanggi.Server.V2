@@ -1,115 +1,242 @@
-﻿namespace YuJanggi.Server.V2.GameRoom
+using System.Diagnostics;
+using YuJanggi.Core.Board;
+using YuJanggi.Core.Domain;
+using YuJanggi.Core.Match;
+using YuJanggi.Core.Rule;
+
+namespace YuJanggi.Server.V2.GameRoom
 {
     using ClientSession;
-    using Matching;
-    using Core;
-    using YuJanggi.Core.Match;
 
-    /// <summary>
-    /// 매칭된 두 플레이어의 준비 상태와 한 판의 장기 대국 수명을 관리합니다.
-    /// 양쪽 준비가 완료되면 서버가 게임 시작을 결정합니다.
-    /// </summary>
-    /// <remarks>
-    /// 매칭 ID와 참가자 초기화만 구현했습니다. 준비 상태, Core 연동 및 이벤트 전송은 아직 미구현입니다.
-    /// Initialize 이외의 미구현 메서드를 호출하면 NotImplementedException이 발생합니다.
-    /// </remarks>
-    internal class GameRoom
+    /// <summary>한 대국의 엔진과 시간 루프를 소유하며 모든 엔진 변경을 직렬화합니다.</summary>
+    internal sealed class GameRoom
     {
-        private readonly MatchModel _mainGame;
+        private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(50);
+        private readonly Lock _engineSync = new();
+        private readonly CancellationTokenSource _lifetimeCts = new();
+        // 현재 배포된 Core의 장기 엔진 타입은 MatchModel입니다.
+        private MatchModel? _engine;
+        private Task? _runTask;
+        private long _lastTick;
+        private bool _choReady;
+        private bool _hanReady;
+        private bool _started;
+        private bool _ended;
+        private bool _closed;
 
-        /// <summary>클라이언트에 전달한 매칭 ID입니다.</summary>
         public string MatchId { get; private set; } = string.Empty;
-
-        /// <summary>초 진영 참가자입니다. 초기화 전에는 null입니다.</summary>
         public IClientSession? ChoPlayer { get; private set; }
-
-        /// <summary>한 진영 참가자입니다. 초기화 전에는 null입니다.</summary>
         public IClientSession? HanPlayer { get; private set; }
+        public Formation ChoFormation { get; private set; }
+        public Formation HanFormation { get; private set; }
 
-
-
-
-        /// <summary>
-        /// 기존 매칭 ID와 초·한 참가자를 받아 룸을 초기화합니다.
-        /// 두 참가자가 서로 다른 세션인지 확인하고 정보를 저장합니다. 실제 대국은 시작하지 않습니다.
-        /// </summary>
-        /// <param name="matchId">MatchingFound에서 전달한 매칭 ID입니다.</param>
-        /// <param name="matchPair">첫 번째 세션은 초, 두 번째 세션은 한인 매칭 쌍입니다.</param>
-        public void Initialize(string matchId, MatchPair matchPair)
+        /// <summary>참가자를 등록합니다. 대국 시작은 양쪽 준비 완료 이후 별도로 요청합니다.</summary>
+        public void Initialize(string matchId, IClientSession choPlayer, Formation choFormation,
+            IClientSession hanPlayer, Formation hanFormation)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(matchId);
-            ArgumentNullException.ThrowIfNull(matchPair);
-            ArgumentNullException.ThrowIfNull(matchPair.First);
-            ArgumentNullException.ThrowIfNull(matchPair.Second);
-            if (!string.IsNullOrEmpty(MatchId))
-                throw new InvalidOperationException("이미 초기화된 장기 룸입니다.");
-            if (matchPair.First.ClientId == matchPair.Second.ClientId)
-                throw new ArgumentException("서로 다른 두 세션이 필요합니다.", nameof(matchPair));
+            ArgumentNullException.ThrowIfNull(choPlayer);
+            ArgumentNullException.ThrowIfNull(hanPlayer);
+            if (!Enum.IsDefined(choFormation) || !Enum.IsDefined(hanFormation))
+                throw new ArgumentException("잘못된 포진입니다.");
+            lock (_engineSync)
+            {
+                if (_ended || _closed || MatchId.Length != 0)
+                    throw new InvalidOperationException("초기화할 수 없는 장기 룸입니다.");
+                if (choPlayer.ClientId == hanPlayer.ClientId)
+                    throw new ArgumentException("서로 다른 두 세션이 필요합니다.");
 
-            MatchId = matchId;
-            ChoPlayer = matchPair.First;
-            HanPlayer = matchPair.Second;
+                MatchId = matchId;
+                ChoPlayer = choPlayer;
+                HanPlayer = hanPlayer;
+                ChoFormation = choFormation;
+                HanFormation = hanFormation;
+            }
         }
 
-        /// <summary>
-        /// 해당 세션이 룸 참가자인지 확인한 뒤 준비 완료 상태를 기록합니다.
-        /// 같은 참가자의 중복 준비 요청은 상태를 중복 반영하지 않습니다.
-        /// 준비 완료 기록만 담당하며 실제 시작 여부는 TryStartGame에서 판단합니다.
-        /// </summary>
-        /// <param name="session">준비 완료 요청을 보낸 클라이언트 세션입니다.</param>
+        /// <summary>룸당 하나의 시간 루프를 시작합니다. 반복 호출은 같은 작업을 반환합니다.</summary>
+        public Task RunAsync(CancellationToken cancellationToken = default)
+        {
+            lock (_engineSync)
+            {
+                if (_runTask is not null)
+                    return _runTask;
+                if (_ended || _closed || MatchId.Length == 0)
+                    throw new InvalidOperationException("시간 루프를 시작할 수 없는 룸입니다.");
+
+                return _runTask = RunLoopAsync(cancellationToken);
+            }
+        }
+
+        private async Task RunLoopAsync(CancellationToken cancellationToken)
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, _lifetimeCts.Token);
+            using var timer = new PeriodicTimer(TickInterval);
+            try
+            {
+                while (await timer.WaitForNextTickAsync(linkedCts.Token).ConfigureAwait(false))
+                {
+                    lock (_engineSync)
+                    {
+                        if (_ended || linkedCts.IsCancellationRequested)
+                            break;
+                        if (_started)
+                            AdvanceEngineTime();
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+            {
+                // 서버/룸 종료에 의한 정상 취소입니다.
+            }
+            finally
+            {
+                lock (_engineSync)
+                    StopEngine();
+            }
+        }
+
+        /// <summary>타이머 지연을 포함한 실제 경과 시간을 엔진에 전달합니다. 엔진 잠금 안에서만 호출합니다.</summary>
+        private void AdvanceEngineTime()
+        {
+            long now = Stopwatch.GetTimestamp();
+            float deltaTime = (float)Stopwatch.GetElapsedTime(_lastTick, now).TotalSeconds;
+            _lastTick = now;
+            _engine!.Tick(deltaTime);
+        }
+
+        /// <summary>참가자의 준비 상태만 기록하며 중복 준비 요청은 무시합니다.</summary>
         public void SetPlayerReady(IClientSession session)
         {
-            throw new NotImplementedException();
+            ArgumentNullException.ThrowIfNull(session);
+            lock (_engineSync)
+            {
+                if (_ended || _closed)
+                    throw new InvalidOperationException("종료된 룸입니다.");
+                if (ChoPlayer?.ClientId == session.ClientId)
+                    _choReady = true;
+                else if (HanPlayer?.ClientId == session.ClientId)
+                    _hanReady = true;
+                else
+                    throw new InvalidOperationException("룸 참가자가 아닙니다.");
+            }
         }
 
-        /// <summary>
-        /// 양쪽 참가자의 준비 상태와 룸 상태를 확인하고 게임 시작을 시도합니다.
-        /// 조건 확인과 시작 상태 변경은 원자적으로 처리하여 중복 시작을 방지합니다.
-        /// </summary>
-        /// <returns>이번 호출에서 게임을 시작했다면 true, 시작 조건을 충족하지 못했거나 이미 시작했다면 false입니다.</returns>
-        public bool TryStartGame()
+        /// <summary>양쪽 준비 완료 시 엔진을 초기화하고 대국 시간을 시작합니다. 0초는 Core의 무제한 설정입니다.</summary>
+        public bool TryStartGame(float turnTime)
         {
-            throw new NotImplementedException();
+            if (!float.IsFinite(turnTime) || turnTime < 0)
+                throw new ArgumentOutOfRangeException(nameof(turnTime));
+            lock (_engineSync)
+            {
+                if (_ended || _started || !_choReady || !_hanReady || _runTask is null)
+                    return false;
+
+                try
+                {
+                    _engine = new MatchModel(new Turn(turnTime), new Record(), new Score(),
+                        new BoardModel(), new JanggiRule());
+                    _engine.InitGame(ChoFormation, HanFormation);
+                    _engine.BindEvents();
+                    _engine.MatchEvent.OnGameEnded += HandleGameEnded;
+                    _engine.StartGame();
+                    _lastTick = Stopwatch.GetTimestamp();
+                    _started = true;
+                    return true;
+                }
+                catch
+                {
+                    StopEngine();
+                    throw;
+                }
+            }
         }
 
-        /// <summary>
-        /// 시작 조건을 통과한 대국의 Core 모델, 초기 보드와 첫 턴을 구성합니다.
-        /// TryStartGame을 통해 한 번만 호출되도록 하며, 클라이언트의 표시용 카운트가 직접 호출하지 않습니다.
-        /// 게임 시작 이벤트의 전송 경로는 이후 구현에서 연결합니다.
-        /// </summary>
-        private void StartGame()
+        /// <summary>서버가 허용한 이동을 엔진에 전달합니다. 시간 갱신과 동시에 실행되지 않습니다.</summary>
+        public bool TryMove(Pos from, Pos to)
         {
-            throw new NotImplementedException();
+            lock (_engineSync)
+            {
+                if (!_started || _ended)
+                    return false;
+                // 이동 전에 이전 턴의 경과 시간을 반영하여 다음 턴에 시간이 넘어가지 않게 합니다.
+                PlayerTeam requestedTurn = _engine!.PlayerTurn;
+                AdvanceEngineTime();
+                if (_ended || _engine.PlayerTurn != requestedTurn)
+                    return false;
+                return _engine.TryMove(from, to);
+            }
         }
 
-        /// <summary>
-        /// 참가자의 연결 종료를 룸에 반영합니다.
-        /// 준비 중 이탈과 대국 중 이탈을 구분하고, 재접속 대기 또는 대국 종료 정책을 적용할 진입점입니다.
-        /// 구체적인 복구 및 종료 정책은 이후 구현에서 결정합니다.
-        /// </summary>
-        /// <param name="session">연결이 종료된 클라이언트 세션입니다.</param>
-        public void HandlePlayerDisconnected(IClientSession session)
+        /// <summary>현재 턴의 기권을 엔진에 전달합니다. 요청자/진영 검증은 호출하는 서버 핸들러가 담당합니다.</summary>
+        public void GiveUp()
         {
-            throw new NotImplementedException();
+            lock (_engineSync)
+            {
+                if (!_started || _ended)
+                    return;
+                PlayerTeam requestedTurn = _engine!.PlayerTurn;
+                AdvanceEngineTime();
+                if (!_ended && _engine.PlayerTurn == requestedTurn)
+                    _engine.GiveUp();
+            }
         }
 
-        /// <summary>
-        /// 진행 중인 대국을 종료 상태로 전환하고 추가 게임 입력과 턴 진행을 중단합니다.
-        /// 종료 사유 및 결과 전달 방식은 이후 대국 처리 구현에서 정의합니다.
-        /// 룸 자원 해제는 Close에서 별도로 처리합니다.
-        /// </summary>
+        private void HandleGameEnded(GameResultInfo result)
+        {
+            // 엔진 이벤트도 Tick/명령의 동일 잠금 안에서 발생합니다.
+            StopEngine();
+        }
+
+        /// <summary>결과를 새로 판정하지 않고 엔진과 시간 루프를 중단합니다.</summary>
         public void EndGame()
         {
-            throw new NotImplementedException();
+            lock (_engineSync)
+                StopEngine();
         }
 
-        /// <summary>
-        /// 룸의 예약 작업, 이벤트 구독과 참가자 참조를 정리합니다.
-        /// 반복 호출에도 안전하게 종료하도록 구현하며, 클라이언트 연결의 소유권은 서버에 유지합니다.
-        /// </summary>
-        public void Close()
+        private void StopEngine()
         {
-            throw new NotImplementedException();
+            if (_ended)
+                return;
+            _ended = true;
+            _engine?.Turn.EndGame();
+            _lifetimeCts.Cancel();
+        }
+
+        /// <summary>루프 종료를 기다린 뒤 이벤트와 참가자 참조를 정리합니다. 연결은 서버가 소유합니다.</summary>
+        public async Task CloseAsync()
+        {
+            Task completion;
+            lock (_engineSync)
+            {
+                StopEngine();
+                completion = _runTask ?? Task.CompletedTask;
+            }
+            try
+            {
+                await completion.ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_engineSync)
+                {
+                    if (!_closed)
+                    {
+                        _closed = true;
+                        if (_engine is not null)
+                        {
+                            _engine.MatchEvent.OnGameEnded -= HandleGameEnded;
+                            _engine.UnBindEvents();
+                            _engine = null;
+                        }
+                        ChoPlayer = null;
+                        HanPlayer = null;
+                        _lifetimeCts.Dispose();
+                    }
+                }
+            }
         }
     }
 }

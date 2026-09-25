@@ -28,7 +28,6 @@ namespace YuJanggi.Server.V2.Server
         private readonly ClientSessionManager   _sessionManager;
         private readonly MatchMakingService _matchMakingService;
         private readonly Lock _roomSync = new();
-        private readonly GameRoomManager _gameRoomManager;
 
         private readonly Dictionary<ClientMessageType, IMessageHandler> _handlers;
 
@@ -47,9 +46,9 @@ namespace YuJanggi.Server.V2.Server
 
             var handshakeHandler = new ProtocolHandshakeHandler();
 
-            _matchMakingService = new MatchMakingService();
-            _gameRoomManager = new GameRoomManager(_sessionManager, _roomSync);
-            var matchingHandler = new MatchingHandler(_matchMakingService, _gameRoomManager);
+            var gameRoomManager = new GameRoomManager(_sessionManager, _roomSync);
+            _matchMakingService = new MatchMakingService(gameRoomManager);
+            var matchingHandler = new MatchingHandler(_matchMakingService);
 
             _handlers =
                 new Dictionary<ClientMessageType, IMessageHandler>
@@ -64,6 +63,10 @@ namespace YuJanggi.Server.V2.Server
                     },
                     {
                         ClientMessageType.MatchingCancelRequest,
+                        matchingHandler
+                    },
+                    {
+                        ClientMessageType.FormationSubmit,
                         matchingHandler
                     }
                 };
@@ -124,8 +127,14 @@ namespace YuJanggi.Server.V2.Server
 
                 Task[] processingTasks = _sessionManager.GetProcessingTasks();
                 _sessionManager.Clear();
-                await Task.WhenAll(processingTasks);
-                _gameRoomManager.Clear();
+                try
+                {
+                    await Task.WhenAll(processingTasks);
+                }
+                finally
+                {
+                    await _matchMakingService.ClearAsync();
+                }
             }
         }
 
@@ -177,30 +186,34 @@ namespace YuJanggi.Server.V2.Server
             }
             finally
             {
-                DisconnectClient(session);
+                await DisconnectClient(session);
             }
         }
 
-        private void DisconnectClient(
+        private async Task DisconnectClient(
             IClientSession session)
         {
             // 서버 종료 시 세션 목록이 먼저 비워졌더라도 대기열은 반드시 정리합니다.
-            _matchMakingService.CancelMatch(session);
 
             bool removed;
             lock (_roomSync)
             {
                 // 매니저의 룸 생성과 세션 제거를 같은 잠금으로 보호합니다.
                 removed = _sessionManager.Remove(session.ClientId, out _);
-                _gameRoomManager.RemoveRoomsForPlayer(session.ClientId);
             }
+
+            // 서비스 → 룸 매니저 순서로 잠급니다. 서버 잠금을 보유한 채 서비스를 호출하지 않습니다.
+            Task roomCleanup = _matchMakingService.DisconnectPlayerAsync(session);
 
             if (!removed)
             {
+                await roomCleanup;
                 return;
             }
 
             session.Dispose();
+
+            await roomCleanup;
 
             NetworkView.Write(
                 NetworkMessageType.Message,

@@ -20,7 +20,8 @@ await Run("신청·중복·취소·재신청·FIFO·동일 세션 방어", async
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var service = new MatchMakingService();
+    await using var rooms = CreateRoomManager(first.Session);
+    var service = new MatchMakingService(rooms);
     Check(service.RequestMatch(first.Session, out var pair) == MatchingResult.Accepted && pair is null);
     Check(service.RequestMatch(first.Session, out pair) == MatchingResult.AlreadyMatching && pair is null);
     Check(service.CancelMatch(first.Session) == MatchingCancelResult.Cancelled);
@@ -38,7 +39,8 @@ await Run("신청·중복·취소·재신청·FIFO·동일 세션 방어", async
 await Run("Handshake 전 거절 및 성공 후 신청", async () =>
 {
     using var peer = await Peer.Create(false);
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(peer.Session));
+    await using var rooms = CreateRoomManager(peer.Session);
+    var handler = new MatchingHandler(new MatchMakingService(rooms));
     await handler.HandleAsync(peer.Session, Request("before"), token);
     var response = await peer.Read(token);
     Check(response.RequestId == "before" && response.GetPayload<MatchingResponse>().Result == MatchingResult.HandshakeRequired);
@@ -56,11 +58,12 @@ await Run("Handshake 전 거절 및 성공 후 신청", async () =>
     await handler.HandleAsync(peer.Session, Request("after"), token);
     Check((await peer.Read(token)).GetPayload<MatchingResponse>().Result == MatchingResult.Accepted);
 });
-await Run("동시 신청에서 양쪽 응답 후 동일 MatchingFound 전달", async () =>
+await Run("동시 신청에서 양쪽 응답 후 같은 매치의 진영별 MatchingFound 전달", async () =>
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
+    await using var rooms = CreateRoomManager(first.Session, second.Session);
+    var handler = new MatchingHandler(new MatchMakingService(rooms));
     var sendLock = first.SendLock;
     await sendLock.WaitAsync(token);
     var firstTask = handler.HandleAsync(first.Session, Request("first"), token);
@@ -75,8 +78,11 @@ await Run("동시 신청에서 양쪽 응답 후 동일 MatchingFound 전달", a
     var found2 = await second.Read(token);
     Check(found1.Type == ServerMessageType.MatchingFound && found2.Type == ServerMessageType.MatchingFound);
     Check(found1.RequestId is null && found2.RequestId is null);
-    Check(found1.GetPayload<MatchingFound>() == found2.GetPayload<MatchingFound>());
-    Check(found1.GetPayload<MatchingFound>().ChoPlayer.PlayerId == first.Session.ClientId.ToString());
+    Check(found1.GetPayload<MatchingFound>().MatchId == found2.GetPayload<MatchingFound>().MatchId);
+    Check(found1.GetPayload<MatchingFound>().MyTeam == ProtocolPlayerTeam.Cho);
+    Check(found2.GetPayload<MatchingFound>().MyTeam == ProtocolPlayerTeam.Han);
+    Check(found1.GetPayload<MatchingFound>().Opponent.PlayerId == second.Session.ClientId.ToString());
+    Check(found2.GetPayload<MatchingFound>().Opponent.PlayerId == first.Session.ClientId.ToString());
 });
 await Run("취소 응답 및 대기 중 연결 종료 정리", async () =>
 {
@@ -84,7 +90,7 @@ await Run("취소 응답 및 대기 중 연결 종료 정리", async () =>
     using var second = await Peer.Create();
     var server = new YuJanggiServer();
     var service = (MatchMakingService)Field(server, "_matchMakingService");
-    var handler = new MatchingHandler(service, (GameRoomManager)Field(server, "_gameRoomManager"));
+    var handler = new MatchingHandler(service);
     await handler.HandleAsync(first.Session, new ClientMessage
     { Type = ClientMessageType.MatchingCancelRequest, RequestId = "cancel" }, token);
     var response = await first.Read(token);
@@ -100,8 +106,8 @@ await Run("취소 응답 및 대기 중 연결 종료 정리", async () =>
     Check(!sessions.Contains(first.Session.ClientId));
     Check(service.RequestMatch(second.Session, out var pair) == MatchingResult.Accepted && pair is null);
     // 세션 목록이 이미 비워진 서버 종료 경로에서도 큐 정리가 실행되어야 합니다.
-    typeof(YuJanggiServer).GetMethod("DisconnectClient", BindingFlags.Instance | BindingFlags.NonPublic)!
-        .Invoke(server, [second.Session]);
+    await ((Task)typeof(YuJanggiServer).GetMethod("DisconnectClient", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(server, [second.Session])!).WaitAsync(token);
     using var third = await Peer.Create();
     Check(service.RequestMatch(third.Session, out pair) == MatchingResult.Accepted && pair is null);
 });
@@ -109,8 +115,9 @@ await Run("진입 전 토큰 취소 시 큐 미등록", async () =>
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var service = new MatchMakingService();
-    var handler = new MatchingHandler(service, CreateRoomManager(first.Session, second.Session));
+    await using var rooms = CreateRoomManager(first.Session, second.Session);
+    var service = new MatchMakingService(rooms);
+    var handler = new MatchingHandler(service);
     using var cancelled = new CancellationTokenSource();
     cancelled.Cancel();
     await ExpectFailure(() => handler.HandleAsync(first.Session, Request("cancelled"), cancelled.Token));
@@ -121,8 +128,9 @@ await Run("응답 전송 실패 시 큐 제거", async () =>
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var service = new MatchMakingService();
-    var handler = new MatchingHandler(service, CreateRoomManager(first.Session, second.Session));
+    await using var rooms = CreateRoomManager(first.Session, second.Session);
+    var service = new MatchMakingService(rooms);
+    var handler = new MatchingHandler(service);
     first.Session.Dispose();
     await ExpectFailure(() => handler.HandleAsync(first.Session, Request("failed"), token));
     service.RequestMatch(second.Session, out var pair);
@@ -132,7 +140,8 @@ await Run("응답 대기 중 취소 시 이미 생성된 쌍의 이벤트 억제
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
+    await using var rooms = CreateRoomManager(first.Session, second.Session);
+    var handler = new MatchingHandler(new MatchMakingService(rooms));
     using var cancelled = new CancellationTokenSource();
     await first.SendLock.WaitAsync(token);
     var firstTask = handler.HandleAsync(first.Session, Request("first"), cancelled.Token);
@@ -148,7 +157,8 @@ await Run("쌍 생성 직후 연결 종료 및 두 번째 이벤트 실패", asy
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
+    await using var rooms = CreateRoomManager(first.Session, second.Session);
+    var handler = new MatchingHandler(new MatchMakingService(rooms));
     await handler.HandleAsync(first.Session, Request("first"), token);
     await first.Read(token);
     await first.SendLock.WaitAsync(token);
@@ -163,7 +173,8 @@ await Run("쌍 생성 직후 연결 종료 및 두 번째 이벤트 실패", asy
 await Run("다수 동시 신청의 원자성과 중복 방어", async () =>
 {
     using var first = await Peer.Create();
-    var service = new MatchMakingService();
+    await using var rooms = CreateRoomManager(first.Session);
+    var service = new MatchMakingService(rooms);
     var results = await Task.WhenAll(Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
     {
         var result = service.RequestMatch(first.Session, out var pair);

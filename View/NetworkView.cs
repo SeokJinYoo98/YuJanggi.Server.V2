@@ -48,9 +48,10 @@ namespace YuJanggi.Server.V2.View
                 NetworkMessageType.Message,
                 $"매칭 알림 전송 완료: {matchingFound.MatchId}" +
                 Environment.NewLine +
-                $"초: {matchingFound.ChoPlayer.PlayerName} ({matchingFound.ChoPlayer.PlayerId})" +
+                $"수신자 진영: {matchingFound.MyTeam}" +
                 Environment.NewLine +
-                $"한: {matchingFound.HanPlayer.PlayerName} ({matchingFound.HanPlayer.PlayerId})");
+                $"상대: {matchingFound.Opponent.PlayerNickname} " +
+                $"({matchingFound.Opponent.PlayerId}, {matchingFound.Opponent.PlayerTeam})");
         }
 
         public static void ShowHandShakeResult(

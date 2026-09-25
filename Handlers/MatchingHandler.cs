@@ -11,17 +11,17 @@ namespace YuJanggi.Server.V2.Handlers
     /// <summary>매칭 요청을 해석하고 응답 및 매칭 이벤트를 전송합니다.</summary>
     internal sealed class MatchingHandler : IMessageHandler
     {
+        private readonly GameRoomManager    _gameRoomManager;
         private readonly MatchMakingService _matchMakingService;
-        private readonly Func<string, MatchPair, JanggiRoom> _createGameRoom;
         private readonly Lock _responseSync = new();
         private readonly Dictionary<Guid, TaskCompletionSource<bool>> _pendingResponses = new();
 
         public MatchingHandler(
             MatchMakingService matchMakingService,
-            Func<string, MatchPair, JanggiRoom> createGameRoom)
+            GameRoomManager gameRoomManager)
         {
             _matchMakingService     = matchMakingService;
-            _createGameRoom         = createGameRoom;
+            _gameRoomManager        = gameRoomManager;
         }
 
         public Task HandleAsync(
@@ -99,7 +99,7 @@ namespace YuJanggi.Server.V2.Handlers
                 if (responsesSent.All(sent => sent))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var room = _createGameRoom(Guid.NewGuid().ToString(), matchPair);
+                    var room = _gameRoomManager.CreateGameRoom(Guid.NewGuid().ToString(), matchPair);
                     await SendMatchingFoundAsync(room.MatchId, matchPair, cancellationToken);
                 }
             }
@@ -166,6 +166,7 @@ namespace YuJanggi.Server.V2.Handlers
             await matchPair.Second.Connection.SendAsync(foundMessage, cancellationToken);
 
             NetworkView.ShowMatchingFound(matchingFound);
+
         }
 
         private static MatchingPlayer CreateMatchingPlayer(IClientSession session)

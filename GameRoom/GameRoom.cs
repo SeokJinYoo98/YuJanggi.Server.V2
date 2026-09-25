@@ -2,6 +2,8 @@
 {
     using ClientSession;
     using Matching;
+    using Core;
+    using YuJanggi.Core.Match;
 
     /// <summary>
     /// 매칭된 두 플레이어의 준비 상태와 한 판의 장기 대국 수명을 관리합니다.
@@ -11,8 +13,10 @@
     /// 매칭 ID와 참가자 초기화만 구현했습니다. 준비 상태, Core 연동 및 이벤트 전송은 아직 미구현입니다.
     /// Initialize 이외의 미구현 메서드를 호출하면 NotImplementedException이 발생합니다.
     /// </remarks>
-    internal class JanggiRoom
+    internal class GameRoom
     {
+        private readonly MatchModel _mainGame;
+
         /// <summary>클라이언트에 전달한 매칭 ID입니다.</summary>
         public string MatchId { get; private set; } = string.Empty;
 
@@ -21,6 +25,9 @@
 
         /// <summary>한 진영 참가자입니다. 초기화 전에는 null입니다.</summary>
         public IClientSession? HanPlayer { get; private set; }
+
+
+
 
         /// <summary>
         /// 기존 매칭 ID와 초·한 참가자를 받아 룸을 초기화합니다.

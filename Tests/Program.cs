@@ -9,6 +9,7 @@ using YuJanggi.Protocol.V2.Connection;
 using YuJanggi.Protocol.V2.Serialization;
 using YuJanggi.Server.V2.ClientSession;
 using YuJanggi.Server.V2.Handlers;
+using YuJanggi.Server.V2.GameRoom;
 using YuJanggi.Server.V2.Matching;
 using YuJanggi.Server.V2.Server;
 using YuJanggi.Server.V2.Transport;
@@ -37,7 +38,7 @@ await Run("신청·중복·취소·재신청·FIFO·동일 세션 방어", async
 await Run("Handshake 전 거절 및 성공 후 신청", async () =>
 {
     using var peer = await Peer.Create(false);
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoom);
+    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(peer.Session));
     await handler.HandleAsync(peer.Session, Request("before"), token);
     var response = await peer.Read(token);
     Check(response.RequestId == "before" && response.GetPayload<MatchingResponse>().Result == MatchingResult.HandshakeRequired);
@@ -59,7 +60,7 @@ await Run("동시 신청에서 양쪽 응답 후 동일 MatchingFound 전달", a
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoom);
+    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
     var sendLock = first.SendLock;
     await sendLock.WaitAsync(token);
     var firstTask = handler.HandleAsync(first.Session, Request("first"), token);
@@ -83,7 +84,7 @@ await Run("취소 응답 및 대기 중 연결 종료 정리", async () =>
     using var second = await Peer.Create();
     var server = new YuJanggiServer();
     var service = (MatchMakingService)Field(server, "_matchMakingService");
-    var handler = new MatchingHandler(service, CreateRoom);
+    var handler = new MatchingHandler(service, (GameRoomManager)Field(server, "_gameRoomManager"));
     await handler.HandleAsync(first.Session, new ClientMessage
     { Type = ClientMessageType.MatchingCancelRequest, RequestId = "cancel" }, token);
     var response = await first.Read(token);
@@ -109,7 +110,7 @@ await Run("진입 전 토큰 취소 시 큐 미등록", async () =>
     using var first = await Peer.Create();
     using var second = await Peer.Create();
     var service = new MatchMakingService();
-    var handler = new MatchingHandler(service, CreateRoom);
+    var handler = new MatchingHandler(service, CreateRoomManager(first.Session, second.Session));
     using var cancelled = new CancellationTokenSource();
     cancelled.Cancel();
     await ExpectFailure(() => handler.HandleAsync(first.Session, Request("cancelled"), cancelled.Token));
@@ -121,7 +122,7 @@ await Run("응답 전송 실패 시 큐 제거", async () =>
     using var first = await Peer.Create();
     using var second = await Peer.Create();
     var service = new MatchMakingService();
-    var handler = new MatchingHandler(service, CreateRoom);
+    var handler = new MatchingHandler(service, CreateRoomManager(first.Session, second.Session));
     first.Session.Dispose();
     await ExpectFailure(() => handler.HandleAsync(first.Session, Request("failed"), token));
     service.RequestMatch(second.Session, out var pair);
@@ -131,7 +132,7 @@ await Run("응답 대기 중 취소 시 이미 생성된 쌍의 이벤트 억제
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoom);
+    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
     using var cancelled = new CancellationTokenSource();
     await first.SendLock.WaitAsync(token);
     var firstTask = handler.HandleAsync(first.Session, Request("first"), cancelled.Token);
@@ -147,7 +148,7 @@ await Run("쌍 생성 직후 연결 종료 및 두 번째 이벤트 실패", asy
 {
     using var first = await Peer.Create();
     using var second = await Peer.Create();
-    var handler = new MatchingHandler(new MatchMakingService(), CreateRoom);
+    var handler = new MatchingHandler(new MatchMakingService(), CreateRoomManager(first.Session, second.Session));
     await handler.HandleAsync(first.Session, Request("first"), token);
     await first.Read(token);
     await first.SendLock.WaitAsync(token);
@@ -174,11 +175,14 @@ await Run("다수 동시 신청의 원자성과 중복 방어", async () =>
 });
 Console.WriteLine("전체 9개 검증 그룹 통과");
 
-static YuJanggi.Server.V2.GameRoom.JanggiRoom CreateRoom(string matchId, MatchPair pair)
+static GameRoomManager CreateRoomManager(params IClientSession[] participants)
 {
-    var room = new YuJanggi.Server.V2.GameRoom.JanggiRoom();
-    room.Initialize(matchId, pair);
-    return room;
+    // 실제 서버처럼 등록된 참가자만 룸을 생성할 수 있도록 테스트 세션을 등록합니다.
+    var sessions = new ClientSessionManager();
+    foreach (var participant in participants)
+        Check(sessions.Add(participant));
+
+    return new GameRoomManager(sessions, new Lock());
 }
 static ClientMessage Request(string id) => new() { Type = ClientMessageType.MatchingRequest, RequestId = id };
 static void Check(bool condition) { if (!condition) throw new Exception("검증 실패"); }

@@ -7,6 +7,7 @@ using YuJanggi.Core.Rule;
 namespace YuJanggi.Server.V2.GameRoom
 {
     using ClientSession;
+    using YuJanggi.Server.V2.View;
 
     /// <summary>한 대국의 엔진과 시간 루프를 소유하며 모든 엔진 변경을 직렬화합니다.</summary>
     internal sealed class GameRoom
@@ -193,7 +194,11 @@ namespace YuJanggi.Server.V2.GameRoom
         public void EndGame()
         {
             lock (_engineSync)
+            {
+
+
                 StopEngine();
+            }
         }
 
         private void StopEngine()
@@ -225,12 +230,14 @@ namespace YuJanggi.Server.V2.GameRoom
                     if (!_closed)
                     {
                         _closed = true;
+
                         if (_engine is not null)
                         {
                             _engine.MatchEvent.OnGameEnded -= HandleGameEnded;
                             _engine.UnBindEvents();
                             _engine = null;
                         }
+
                         ChoPlayer = null;
                         HanPlayer = null;
                         _lifetimeCts.Dispose();

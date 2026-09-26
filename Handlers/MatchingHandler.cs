@@ -26,10 +26,6 @@ namespace YuJanggi.Server.V2.Handlers
         {
             cancellationToken.ThrowIfCancellationRequested();
             ValidateMessage(message);
-            NetworkView.Write(
-                NetworkMessageType.Debug,
-                $"Receive: {message.Type} / RequestId: {message.RequestId}",
-                session.Nickname);
 
             return message.Type switch
             {
@@ -150,7 +146,7 @@ namespace YuJanggi.Server.V2.Handlers
             TPayload payload, CancellationToken cancellationToken)
         {
             var response = ServerMessageFactory.CreateResponse(type, requestId, payload);
-            return session.Connection.SendAsync(response, cancellationToken);
+            return session.SendAsync(response, cancellationToken);
         }
 
         private async Task HandleFormationSubmitAsync(
@@ -227,8 +223,8 @@ namespace YuJanggi.Server.V2.Handlers
             // 룸 생성 직후 연결이 끊기거나 첫 전송 성공 후 두 번째 전송이 실패할 수 있습니다.
             // 현재 순차 전송이므로 한쪽만 GameReady를 받고, 연결 종료 정리로 룸이 제거될 수 있습니다.
             // GameSession에서 준비 수신 확인, 실패 이벤트와 재전송·복구 정책을 결정해야 합니다.
-            await players.First.Connection.SendAsync(message, cancellationToken);
-            await players.Second.Connection.SendAsync(message, cancellationToken);
+            await players.First.SendAsync(message, cancellationToken);
+            await players.Second.SendAsync(message, cancellationToken);
         }
 
         private static async Task SendMatchingFoundAsync(
@@ -248,7 +244,7 @@ namespace YuJanggi.Server.V2.Handlers
                 = ServerMessageFactory.CreateEvent(
                     ServerMessageType.MatchingFound,
                     firstDto);
-            await matchPair.First.Connection.SendAsync(
+            await matchPair.First.SendAsync(
                 firstMsg,
                 cancellationToken);
 
@@ -263,12 +259,9 @@ namespace YuJanggi.Server.V2.Handlers
                     ServerMessageType.MatchingFound,
                     secondDto);
 
-            await matchPair.Second.Connection.SendAsync(
+            await matchPair.Second.SendAsync(
                 secondMsg,
                 cancellationToken);
-
-            NetworkView.ShowMatchingFound(firstDto);
-            NetworkView.ShowMatchingFound(secondDto);
         }
 
         private static MatchingPlayer CreateMatchingPlayer(IClientSession session, ProtocolPlayerTeam team)

@@ -75,8 +75,8 @@ namespace YuJanggi.Server.V2.GameRoom
             }
             catch (Exception exception)
             {
-                NetworkView.Write(NetworkMessageType.Error,
-                    $"GameRoom {room.MatchId} 시간 루프 실패: {exception}");
+                //NetworkView.Write(NetworkMessageType.Error,
+                //    $"GameRoom {room.MatchId} 시간 루프 실패: {exception}");
             }
             finally
             {
@@ -87,8 +87,8 @@ namespace YuJanggi.Server.V2.GameRoom
                 catch (Exception exception)
                 {
                     // 실패한 루프의 Task도 관찰하고 참조 정리는 반드시 수행합니다.
-                    NetworkView.Write(NetworkMessageType.Error,
-                        $"GameRoom {room.MatchId} 종료 중 오류: {exception}");
+                    //NetworkView.Write(NetworkMessageType.Error,
+                    //    $"GameRoom {room.MatchId} 종료 중 오류: {exception}");
                 }
                 finally
                 {

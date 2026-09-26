@@ -151,7 +151,7 @@ namespace YuJanggi.Server.V2.Server
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     ClientMessage message =
-                        await session.Connection.ReceiveAsync(
+                        await session.ReceiveAsync(
                             cancellationToken);
 
                     if (!_handlers.TryGetValue(

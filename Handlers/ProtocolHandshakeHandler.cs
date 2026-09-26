@@ -41,11 +41,6 @@ namespace YuJanggi.Server.V2.Handlers
             ProtocolHandshakeResult result =
                 ValidateVersion(request);
 
-            NetworkView.ShowHandShakeResult(
-                session.Nickname,
-                request,
-                result);
-
             var response = new ProtocolHandshakeResponse
             {
                 Result = result
@@ -57,7 +52,7 @@ namespace YuJanggi.Server.V2.Handlers
                     message.RequestId,
                     response);
 
-            await session.Connection.SendAsync(
+            await session.SendAsync(
                 responseMessage,
                 cancellationToken);
 

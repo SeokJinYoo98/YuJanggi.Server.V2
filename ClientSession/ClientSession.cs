@@ -2,6 +2,7 @@
 {
     using Transport;
     using YuJanggi.Protocol.V2.Messages;
+    using YuJanggi.Server.V2.View;
 
     /// <summary>
     /// 서버에 연결된 단일 클라이언트의 세션 정보를 관리합니다.
@@ -14,9 +15,14 @@
         string  ConnectionInfo { get; }
         string? Nickname { get; }
         bool    IsHandshakeCompleted { get; }
-        public TcpClientConnection Connection { get; }
+        // public TcpClientConnection Connection { get; }
         void AttachProcessingTask(Task processingTask);
         void CompleteHandshake();
+        Task SendAsync(
+             ServerMessage message,
+             CancellationToken cancellationToken);
+        Task<ClientMessage> ReceiveAsync(
+            CancellationToken cancellationToken);
     }
     internal sealed class ClientSession : IClientSession
     {
@@ -79,13 +85,24 @@
             await Connection.SendAsync(
                 message,
                 cancellationToken);
+
+            NetworkView.ShowSendMessage(
+                Nickname,
+                message);
         }
 
         public async Task<ClientMessage> ReceiveAsync(
             CancellationToken cancellationToken)
         {
-           return await Connection.ReceiveAsync(
-                cancellationToken);
+            ClientMessage message =
+                    await Connection.ReceiveAsync(
+                        cancellationToken);
+
+            NetworkView.ShowReceiveMessage(
+                Nickname,
+                message);
+
+            return message;
         }
     }
         #endregion

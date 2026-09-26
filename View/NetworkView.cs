@@ -2,9 +2,11 @@ using System;
 
 namespace YuJanggi.Server.V2.View
 {
+    using System.Text.Json;
     using YuJanggi.Core;
     using YuJanggi.Protocol.V2.Connection;
     using YuJanggi.Protocol.V2.Matching;
+    using YuJanggi.Protocol.V2.Messages;
 
     internal enum NetworkMessageType
     {
@@ -18,9 +20,9 @@ namespace YuJanggi.Server.V2.View
         private static readonly object OutputLock = new();
 
         public static void Write(
-               NetworkMessageType messageType,
-               string message,
-               string? nickname = null)
+            NetworkMessageType messageType,
+            string message,
+            string? nickname = null)
         {
             string source =
                 string.IsNullOrWhiteSpace(nickname)
@@ -42,35 +44,44 @@ namespace YuJanggi.Server.V2.View
             }
         }
 
-        public static void ShowMatchingFound(MatchingFound matchingFound)
+        public static void ShowReceiveMessage(
+            string? nickname,
+            ClientMessage message)
         {
             Write(
-                NetworkMessageType.Message,
-                $"매칭 알림 전송 완료: {matchingFound.MatchId}" +
+                NetworkMessageType.Debug,
+                $"Receive" +
                 Environment.NewLine +
-                $"수신자 진영: {matchingFound.MyTeam}" +
+                $"Type: {message.Type}" +
                 Environment.NewLine +
-                $"상대: {matchingFound.Opponent.PlayerNickname} " +
-                $"({matchingFound.Opponent.PlayerId}, {matchingFound.Opponent.PlayerTeam})");
+                $"RequestId: {message.RequestId ?? "None"}" +
+                Environment.NewLine +
+                $"Payload: {GetPayloadText(message.Payload)}",
+                nickname);
         }
 
-        public static void ShowHandShakeResult(
-            string nickname,
-            ProtocolHandshakeRequest request,
-            ProtocolHandshakeResult result)
+        public static void ShowSendMessage(
+            string? nickname,
+            ServerMessage message)
         {
             Write(
-                result == ProtocolHandshakeResult.Success
-                    ? NetworkMessageType.Debug
-                    : NetworkMessageType.Error,
-                $"Protocol: Client={request.YuJanggiProtocolVersion}, " +
-                $"Server={Protocol.V2.ProtocolVersion.Current}" +
+                NetworkMessageType.Debug,
+                $"Send" +
                 Environment.NewLine +
-                $"Core: Client={request.YuJanggiCoreVersion}, " +
-                $"Server={CoreVersion.Current}" +
+                $"Type: {message.Type}" +
                 Environment.NewLine +
-                $"Handshake Result: {result}",
+                $"RequestId: {message.RequestId ?? "None"}" +
+                Environment.NewLine +
+                $"Payload: {GetPayloadText(message.Payload)}",
                 nickname);
+        }
+
+        private static string GetPayloadText(JsonElement? payload)
+        {
+            if (payload is null)
+                return "None";
+
+            return payload.Value.GetRawText();
         }
     }
 }

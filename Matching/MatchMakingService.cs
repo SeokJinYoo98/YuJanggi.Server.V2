@@ -1,10 +1,10 @@
-using YuJanggi.Core.Domain;
+using YuJanggi.Core.V2.Domain;
 using YuJanggi.Protocol.V2.Matching;
-using YuJanggi.Server.V2.ClientSession;
-using YuJanggi.Server.V2.GameRoom;
 
 namespace YuJanggi.Server.V2.Matching
 {
+    using ClientSession;
+    using GameRoom;
     internal sealed record MatchPair(IClientSession First, IClientSession Second);
     internal sealed record ConfirmedMatch(string MatchId, MatchPair Players);
     internal enum FormationSubmissionStatus

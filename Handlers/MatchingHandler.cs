@@ -2,7 +2,7 @@ using YuJanggi.Protocol.V2.Matching;
 using YuJanggi.Protocol.V2.Messages;
 using YuJanggi.Protocol.V2.Messages.MessageFactory;
 using YuJanggi.Server.V2.ClientSession;
-using YuJanggi.Core.Domain;
+using YuJanggi.Core.V2.Domain;
 using YuJanggi.Server.V2.Matching;
 using YuJanggi.Server.V2.View;
 

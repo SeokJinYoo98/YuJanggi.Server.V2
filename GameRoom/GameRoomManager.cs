@@ -1,5 +1,4 @@
-using YuJanggi.Core.Domain;
-using YuJanggi.Server.V2.View;
+using YuJanggi.Core.V2.Domain;
 
 namespace YuJanggi.Server.V2.GameRoom
 {

@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace YuJanggi.Server.V2.Handlers
 {
-    using Core;
+    using Core.V2;
 
     using Protocol.V2.Connection;
     using Protocol.V2.Messages;

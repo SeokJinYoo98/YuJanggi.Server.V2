@@ -7,7 +7,24 @@ namespace YuJanggi.Server.V2.Matching
 {
     internal sealed record MatchPair(IClientSession First, IClientSession Second);
     internal sealed record ConfirmedMatch(string MatchId, MatchPair Players);
-    internal readonly record struct FormationSubmission(FormationSubmitResult Result, bool RoomCreated = false);
+    internal enum FormationSubmissionStatus
+    {
+        Accepted, AlreadySubmitted, NotMatched, InvalidFormation, HandshakeRequired, ServerError
+    }
+
+    /// <summary>포진 접수 결과와 이번 접수로 생성된 룸의 확정 정보를 반환합니다.</summary>
+    internal readonly record struct FormationSubmission(
+        FormationSubmissionStatus Result,
+        bool RoomCreated = false,
+        string? MatchId = null,
+        Formation? ChoFormation = null,
+        Formation? HanFormation = null,
+        MatchPair? Players = null)
+    {
+        // 이미 생성된 룸에 대한 중복 제출은 준비 이벤트를 다시 발생시키지 않습니다.
+        public bool IsReady => Result == FormationSubmissionStatus.Accepted && RoomCreated &&
+            MatchId is not null && ChoFormation.HasValue && HanFormation.HasValue && Players is not null;
+    }
 
     /// <summary>매칭 예약·확정 및 포진 접수를 관리합니다. 메시지 생성이나 네트워크 전송은 하지 않습니다.</summary>
     internal sealed class MatchMakingService
@@ -109,18 +126,18 @@ namespace YuJanggi.Server.V2.Matching
             lock (_sync)
             {
                 if (!session.IsHandshakeCompleted)
-                    return new(FormationSubmitResult.HandshakeRequired);
+                    return new(FormationSubmissionStatus.HandshakeRequired);
                 if (!Enum.IsDefined(formation))
-                    return new(FormationSubmitResult.InvalidFormation);
+                    return new(FormationSubmissionStatus.InvalidFormation);
 
                 var state = FindMatch(session.ClientId);
                 if (state?.MatchId is null)
-                    return new(FormationSubmitResult.NotMatched);
+                    return new(FormationSubmissionStatus.NotMatched);
 
                 bool isCho = state.Players.First.ClientId == session.ClientId;
                 Formation? submitted = isCho ? state.ChoFormation : state.HanFormation;
                 if (submitted.HasValue)
-                    return new(FormationSubmitResult.AlreadySubmitted, state.RoomCreated);
+                    return new(FormationSubmissionStatus.AlreadySubmitted, state.RoomCreated, state.MatchId);
 
                 if (isCho)
                     state.ChoFormation = formation;
@@ -144,7 +161,8 @@ namespace YuJanggi.Server.V2.Matching
                         throw;
                     }
                 }
-                return new(FormationSubmitResult.Accepted, state.RoomCreated);
+                return new(FormationSubmissionStatus.Accepted, state.RoomCreated, state.MatchId,
+                    state.ChoFormation, state.HanFormation, state.Players);
             }
         }
 

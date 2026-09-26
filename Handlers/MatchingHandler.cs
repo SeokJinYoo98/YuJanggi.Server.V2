@@ -153,7 +153,7 @@ namespace YuJanggi.Server.V2.Handlers
             return session.Connection.SendAsync(response, cancellationToken);
         }
 
-        private Task HandleFormationSubmitAsync(
+        private async Task HandleFormationSubmitAsync(
             IClientSession session, ClientMessage message, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -172,18 +172,63 @@ namespace YuJanggi.Server.V2.Handlers
 
             var submission = formation.HasValue
                 ? _matchMakingService.SubmitFormation(session, formation.Value)
-                : new FormationSubmission(FormationSubmitResult.InvalidFormation);
+                : new FormationSubmission(FormationSubmissionStatus.InvalidFormation);
 
             // TODO:
-            // 마지막 포진 접수로 룸을 생성해도 현재는 제출자에게 접수 응답만 보냅니다.
-            // 상대는 룸 생성 완료를 별도 이벤트로 알 수 없으며 게임은 시작되지 않습니다.
-            // 게임 준비/시작 프로토콜에서 양쪽 초기 설정과 준비 요청 경로를 연결해야 합니다.
-            return SendResponseAsync(session, ServerMessageType.FormationSubmitResponse,
+            // 룸 생성 후 접수 응답 전송이 실패하거나 취소되면 GameReady는 전송하지 않습니다.
+            // 현재 예외는 요청 처리 루프로 전달되며 상대는 준비 완료를 기다릴 수 있습니다.
+            // GameSession의 준비 실패 통지 및 재접속 시 준비 상태 복원 정책을 추가해야 합니다.
+            await SendResponseAsync(session, ServerMessageType.FormationSubmitResponse,
                 message.RequestId!, new FormationSubmitResponse
                 {
-                    Result = submission.Result,
+                    MatchId = submission.MatchId ?? string.Empty,
+                    Result = ToProtocolResult(submission.Result),
                     RoomCreated = submission.RoomCreated
                 }, cancellationToken);
+
+            if (submission.IsReady)
+                await SendGameReadyAsync(submission, cancellationToken);
+        }
+
+        private static FormationSubmitResult ToProtocolResult(FormationSubmissionStatus result) => result switch
+        {
+            FormationSubmissionStatus.Accepted => FormationSubmitResult.Accepted,
+            FormationSubmissionStatus.AlreadySubmitted => FormationSubmitResult.AlreadySubmitted,
+            FormationSubmissionStatus.NotMatched => FormationSubmitResult.NotMatched,
+            FormationSubmissionStatus.InvalidFormation => FormationSubmitResult.InvalidFormation,
+            FormationSubmissionStatus.HandshakeRequired => FormationSubmitResult.HandshakeRequired,
+            FormationSubmissionStatus.ServerError => FormationSubmitResult.ServerError,
+            _ => throw new ArgumentOutOfRangeException(nameof(result))
+        };
+
+        private static ProtocolFormation ToProtocolFormation(Formation formation) => formation switch
+        {
+            Formation.HEHE => ProtocolFormation.HEHE,
+            Formation.EHEH => ProtocolFormation.EHEH,
+            Formation.EHHE => ProtocolFormation.EHHE,
+            Formation.HEEH => ProtocolFormation.HEEH,
+            _ => throw new ArgumentOutOfRangeException(nameof(formation))
+        };
+
+        private static async Task SendGameReadyAsync(
+            FormationSubmission submission, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var ready = new GameReady
+            {
+                MatchId = submission.MatchId!,
+                ChoFormation = ToProtocolFormation(submission.ChoFormation!.Value),
+                HanFormation = ToProtocolFormation(submission.HanFormation!.Value)
+            };
+            var message = ServerMessageFactory.CreateEvent(ServerMessageType.GameReady, ready);
+            var players = submission.Players!;
+
+            // TODO:
+            // 룸 생성 직후 연결이 끊기거나 첫 전송 성공 후 두 번째 전송이 실패할 수 있습니다.
+            // 현재 순차 전송이므로 한쪽만 GameReady를 받고, 연결 종료 정리로 룸이 제거될 수 있습니다.
+            // GameSession에서 준비 수신 확인, 실패 이벤트와 재전송·복구 정책을 결정해야 합니다.
+            await players.First.Connection.SendAsync(message, cancellationToken);
+            await players.Second.Connection.SendAsync(message, cancellationToken);
         }
 
         private static async Task SendMatchingFoundAsync(

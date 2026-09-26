@@ -23,7 +23,7 @@ namespace YuJanggi.Server.V2.Handlers
             ClientMessage message,
             CancellationToken cancellationToken)
         {
-            if (message.Type != ClientMessageType.ProtocolHandshake)
+            if (message.Type != ClientMessageType.HandshakeRequest)
             {
                 throw new InvalidOperationException(
                     $"핸드셰이크 메시지가 아닙니다: {message.Type}");

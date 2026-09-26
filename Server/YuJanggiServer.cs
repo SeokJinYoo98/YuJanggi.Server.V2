@@ -54,7 +54,7 @@ namespace YuJanggi.Server.V2.Server
                 new Dictionary<ClientMessageType, IMessageHandler>
                 {
                     {
-                        ClientMessageType.ProtocolHandshake,
+                        ClientMessageType.HandshakeRequest,
                         handshakeHandler
                     },
                     {

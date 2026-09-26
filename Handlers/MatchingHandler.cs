@@ -153,17 +153,17 @@ namespace YuJanggi.Server.V2.Handlers
             IClientSession session, ClientMessage message, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var payload = message.GetPayload<FormationSubmit>();
+            var payload = message.GetPayload<FormationSubmitRequest>();
             Formation? formation = payload.Formation switch
             {
-                MatchingFormation.HEHE => Formation.HEHE,
-                MatchingFormation.EHEH => Formation.EHEH,
-                MatchingFormation.EHHE => Formation.EHHE,
-                MatchingFormation.HEEH => Formation.HEEH,
+                ProtocolFormation.HEHE => Formation.HEHE,
+                ProtocolFormation.EHEH => Formation.EHEH,
+                ProtocolFormation.EHHE => Formation.EHHE,
+                ProtocolFormation.HEEH => Formation.HEEH,
                 _ => null
             };
             // 필드 누락을 enum 기본값(HEHE) 제출로 처리하지 않습니다.
-            if (!message.Payload!.Value.TryGetProperty(nameof(FormationSubmit.Formation), out _))
+            if (!message.Payload!.Value.TryGetProperty(nameof(FormationSubmitRequest.Formation), out _))
                 formation = null;
 
             var submission = formation.HasValue
@@ -210,7 +210,7 @@ namespace YuJanggi.Server.V2.Handlers
             FormationSubmission submission, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var ready = new GameReady
+            var ready = new GameReadyEvent
             {
                 MatchId = submission.MatchId!,
                 ChoFormation = ToProtocolFormation(submission.ChoFormation!.Value),
@@ -264,9 +264,9 @@ namespace YuJanggi.Server.V2.Handlers
                 cancellationToken);
         }
 
-        private static MatchingPlayer CreateMatchingPlayer(IClientSession session, ProtocolPlayerTeam team)
+        private static MatchingPlayerEvent CreateMatchingPlayer(IClientSession session, ProtocolPlayerTeam team)
         {
-            return new MatchingPlayer
+            return new MatchingPlayerEvent
             {
                 PlayerId = session.ClientId.ToString(),
                 PlayerNickname = session.Nickname!,

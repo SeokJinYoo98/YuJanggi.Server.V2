@@ -129,7 +129,7 @@ namespace YuJanggi.Server.V2.Handlers
             // TODO:
             // 응답 실패 또는 토큰 취소 전에 쌍이 생성되었다면 상대도 이미 큐에서 빠진 상태입니다.
             // 현재는 MatchingFound를 보내지 않지만 상대는 Accepted 이후 계속 기다릴 수 있습니다.
-            // GameRoom / MatchSession에서 매칭 확정과 실패 통지 또는 재대기 정책을 구현해야 합니다.
+            // 매칭 실패 통지는 Handler에서, 재대기 정책은 MatchMakingService에서 처리해야 합니다.
         }
 
         private Task HandleCancelAsync(
@@ -173,7 +173,7 @@ namespace YuJanggi.Server.V2.Handlers
             // TODO:
             // 룸 생성 후 접수 응답 전송이 실패하거나 취소되면 GameReady는 전송하지 않습니다.
             // 현재 예외는 요청 처리 루프로 전달되며 상대는 준비 완료를 기다릴 수 있습니다.
-            // GameSession의 준비 실패 통지 및 재접속 시 준비 상태 복원 정책을 추가해야 합니다.
+            // 준비 실패 통지와 재접속 시 상태 복원 정책은 Protocol 확장 시 연결해야 합니다.
             await SendResponseAsync(session, ServerMessageType.FormationSubmitResponse,
                 message.RequestId!, new FormationSubmitResponse
                 {
@@ -222,7 +222,7 @@ namespace YuJanggi.Server.V2.Handlers
             // TODO:
             // 룸 생성 직후 연결이 끊기거나 첫 전송 성공 후 두 번째 전송이 실패할 수 있습니다.
             // 현재 순차 전송이므로 한쪽만 GameReady를 받고, 연결 종료 정리로 룸이 제거될 수 있습니다.
-            // GameSession에서 준비 수신 확인, 실패 이벤트와 재전송·복구 정책을 결정해야 합니다.
+            // 준비 수신 확인, 실패 이벤트와 재전송·복구 정책은 Protocol 확장 시 결정해야 합니다.
             await players.First.SendAsync(message, cancellationToken);
             await players.Second.SendAsync(message, cancellationToken);
         }

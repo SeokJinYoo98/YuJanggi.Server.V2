@@ -26,6 +26,7 @@ namespace YuJanggi.Server.V2.Server
         #region Fields
         private readonly TcpConnectionListener  _listener;
         private readonly ClientSessionManager   _sessionManager;
+        private readonly GameRoomManager _gameRoomManager;
         private readonly MatchMakingService _matchMakingService;
         private readonly Lock _roomSync = new();
 
@@ -44,13 +45,18 @@ namespace YuJanggi.Server.V2.Server
             _sessionManager =
                 new ClientSessionManager();
 
+            _gameRoomManager = new GameRoomManager(_sessionManager, _roomSync);
+            _matchMakingService = new MatchMakingService(_gameRoomManager);
+            _handlers = CreateHandlers();
+        }
+
+        private Dictionary<ClientMessageType, IMessageHandler> CreateHandlers()
+        {
             var handshakeHandler = new ProtocolHandshakeHandler();
-
-            var gameRoomManager = new GameRoomManager(_sessionManager, _roomSync);
-            _matchMakingService = new MatchMakingService(gameRoomManager);
             var matchingHandler = new MatchingHandler(_matchMakingService);
+            var gameHandler = new GameHandler(_gameRoomManager);
 
-            _handlers =
+            return
                 new Dictionary<ClientMessageType, IMessageHandler>
                 {
                     {
@@ -68,6 +74,10 @@ namespace YuJanggi.Server.V2.Server
                     {
                         ClientMessageType.FormationSubmit,
                         matchingHandler
+                    },
+                    {
+                        ClientMessageType.GameSceneReadyRequest,
+                        gameHandler
                     }
                 };
         }

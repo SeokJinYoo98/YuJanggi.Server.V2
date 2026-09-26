@@ -149,8 +149,7 @@ namespace YuJanggi.Server.V2.Matching
                     try
                     {
                         _gameRoomManager.CreateGameRoom(state.MatchId,
-                            state.Players.First, state.ChoFormation.Value,
-                            state.Players.Second, state.HanFormation.Value);
+                            state.Players.First, state.Players.Second);
                         state.RoomCreated = true;
                     }
                     catch
